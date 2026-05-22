@@ -186,64 +186,275 @@ async function parsePDF(typedarray) {
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         let page = await pdf.getPage(pageNum);
         let textContent = await page.getTextContent();
+        
         let items = textContent.items.map(item => ({
-            text: item.str, x: item.transform[4], y: item.transform[5], width: item.width
+            text: item.str,
+            x: item.transform[4],
+            y: item.transform[5],
+            width: item.width
         })).filter(item => item.text.trim().length > 0);
 
-        let c12_y = items.find(i => i.text.toLowerCase().replace(/с/g, 'c').replace(/\s+/g, '') === 'c-12')?.y;
-        if (!c12_y) continue;
+        // 1. Шукаємо С-12 на цій сторінці
+        let c11_y, c12_y, c13_y;
+        let leftColumnItems = items.filter(i => i.x < 150);
+        
+        for (let item of leftColumnItems) {
+            let text = item.text.toLowerCase().replace(/с/g, 'c').replace(/\s+/g, '');
+            if (text === 'c-11') c11_y = item.y;
+            if (text === 'c-12') c12_y = item.y;
+            if (text === 'c-13') c13_y = item.y;
+        }
 
+        if (!c12_y) continue; // С-12 немає на цій сторінці
+
+        // 2. Визначаємо Y-межі для С-12
         let dy = 60;
-        let c11_y = items.find(i => i.text.toLowerCase().replace(/с/g, 'c').replace(/\s+/g, '') === 'c-11')?.y;
-        let c13_y = items.find(i => i.text.toLowerCase().replace(/с/g, 'c').replace(/\s+/g, '') === 'c-13')?.y;
         if (c12_y && c13_y) dy = Math.abs(c12_y - c13_y);
         else if (c11_y && c12_y) dy = Math.abs(c11_y - c12_y);
 
-        let yGoesUp = (c11_y && c11_y > c12_y) || (c12_y && c13_y && c12_y > c13_y);
-        let topBoundary = yGoesUp ? (c11_y || c12_y + dy) - 5 : (c11_y || c12_y - dy) + 5;
-        let bottomBoundary = c12_y + (yGoesUp ? 3 : -3);
-        let c12Items = items.filter(i => i.y >= Math.min(topBoundary, bottomBoundary) && i.y <= Math.max(topBoundary, bottomBoundary));
+        let topBoundary, bottomBoundary;
+        let yGoesUp = true;
+        if (c11_y && c12_y) yGoesUp = c11_y > c12_y;
+        else if (c12_y && c13_y) yGoesUp = c12_y > c13_y;
 
-        let colHeaders = items.filter(i => /^(I|II|III|IV)$/.test(i.text.trim().toUpperCase().replace(/І/g, 'I')));
+        if (yGoesUp) {
+            // Y зростає вгору. Відступаємо всередину комірки, щоб не захопити сусідів.
+            topBoundary = c11_y ? c11_y - 5 : c12_y + dy - 5;
+            bottomBoundary = c12_y + 3; 
+        } else {
+            // Y зростає вниз
+            topBoundary = c11_y ? c11_y + 5 : c12_y - dy + 5;
+            bottomBoundary = c12_y - 3;
+        }
+
+        let maxY = Math.max(topBoundary, bottomBoundary);
+        let minY = Math.min(topBoundary, bottomBoundary);
+
+        let c12Items = items.filter(i => i.y >= minY && i.y <= maxY);
+
+        // 3. Шукаємо X-межі (колонки I, II, III, IV)
+        let colHeaders = items.filter(i => {
+            let text = i.text.trim().toUpperCase().replace(/І/g, 'I');
+            return /^(I|II|III|IV)$/.test(text);
+        });
+
         if (colHeaders.length < 4) continue;
-        let targetY = parseInt(Object.keys(colHeaders.reduce((acc, h) => { let b = Math.round(h.y/5)*5; acc[b] = (acc[b]||0)+1; return acc; }, {})).reduce((a, b, _, arr) => arr.indexOf(a) > arr.indexOf(b) ? a : b));
-        colHeaders = colHeaders.filter(h => Math.abs(h.y - targetY) < 15).sort((a,b) => a.x - b.x);
 
-        let dayHeaders = items.filter(i => dayKeywords.some(kw => i.text.toLowerCase().startsWith(kw))).sort((a,b) => a.x - b.x);
+        let yCounts = {};
+        for (let h of colHeaders) {
+            let bucket = Math.round(h.y / 5) * 5;
+            yCounts[bucket] = (yCounts[bucket] || 0) + 1;
+        }
+        let bestYBucket = Object.keys(yCounts).reduce((a, b) => yCounts[a] > yCounts[b] ? a : b);
+        let targetY = parseInt(bestYBucket);
+        
+        colHeaders = colHeaders.filter(h => Math.abs(h.y - targetY) < 15);
+        colHeaders.sort((a,b) => a.x - b.x);
 
+        let pageDaysCols = [];
+        let currentDayCols = [];
+        for (let c of colHeaders) {
+            let text = c.text.trim().toUpperCase().replace(/І/g, 'I');
+            if (text === 'I' && currentDayCols.length > 0) {
+                pageDaysCols.push(currentDayCols);
+                currentDayCols = [];
+            }
+            currentDayCols.push(c);
+        }
+        if (currentDayCols.length > 0) pageDaysCols.push(currentDayCols);
+
+        // 4. Шукаємо назви днів, щоб зрозуміти, які дні на цій сторінці
+        let dayHeaders = items.filter(i => {
+            let t = i.text.toLowerCase();
+            return dayKeywords.some(kw => t.startsWith(kw));
+        });
+        
+        // Відкидаємо випадкові збіги, беремо лише ті, що високо (заголовки)
+        if (dayHeaders.length > 0) {
+            let dayYCounts = {};
+            for (let h of dayHeaders) {
+                let bucket = Math.round(h.y / 5) * 5;
+                dayYCounts[bucket] = (dayYCounts[bucket] || 0) + 1;
+            }
+            let bestDayYBucket = Object.keys(dayYCounts).reduce((a, b) => dayYCounts[a] > dayYCounts[b] ? a : b);
+            let targetDayY = parseInt(bestDayYBucket);
+            dayHeaders = dayHeaders.filter(h => Math.abs(h.y - targetDayY) < 15);
+        }
+        
+        dayHeaders.sort((a,b) => a.x - b.x);
+
+        // Парсимо розклад для знайдених днів
         for (let di = 0; di < dayHeaders.length; di++) {
-            let dayIdx = dayKeywords.findIndex(kw => dayHeaders[di].text.toLowerCase().startsWith(kw));
-            if (dayIdx === 6) dayIdx = 4;
-            if (dayIdx === -1) continue;
+            let header = dayHeaders[di];
+            let dayText = header.text.toLowerCase();
+            let dayIdx = dayKeywords.findIndex(kw => dayText.startsWith(kw));
+            if (dayIdx === 6) dayIdx = 4; // пятниця -> п'ятниця
+            
+            if (dayIdx !== -1 && di < pageDaysCols.length) {
+                let cols = pageDaysCols[di];
+                let colW = cols.length > 1 ? cols[1].x - cols[0].x : 60;
+                let halfW = colW / 2;
 
-            for (let p = 0; p < 4; p++) {
-                let colW = 60;
-                let colStartX = colHeaders[p].x - colW/2;
-                let colEndX = colHeaders[p].x + colW/2;
-                let cellItems = c12Items.filter(i => (i.x + (i.width || 0)/2) >= colStartX && (i.x + (i.width || 0)/2) < colEndX);
-                schedule[dayIdx][p] = parseCellItems(cellItems);
+                for (let p = 0; p < 4; p++) {
+                    let centerItem = cols[p];
+                    if (!centerItem) {
+                        schedule[dayIdx][p] = { type: 'empty' };
+                        continue;
+                    }
+                    
+                    let colStartX = centerItem.x - halfW;
+                    let colEndX = centerItem.x + halfW;
+
+                    let cellItems = c12Items.filter(item => {
+                        let cx = item.x + (item.width || 0) / 2;
+                        return cx >= colStartX && cx < colEndX;
+                    });
+
+                    let parsed = parseCellItems(cellItems);
+                    
+                    // FALLBACK: Якщо аудиторію не знайшли (часто пишеться ліворуч або прямо на межі комірки)
+                    if (!parsed.room) {
+                        let colCenter = centerItem.x;
+                        let colWidth = Math.abs(cols[1].x - cols[0].x);
+                        
+                        let cellMinY = Math.min(topBoundary, bottomBoundary) - 15;
+                        let cellMaxY = Math.max(topBoundary, bottomBoundary) + 15;
+                        
+                        let possibleRooms = items.filter(i => {
+                            let t = i.text.trim();
+                            let isRoom = (t.includes('-') && /\d/.test(t)) || /^\d+[а-яa-z]*$/i.test(t);
+                            return isRoom && i.y >= cellMinY && i.y <= cellMaxY;
+                        });
+                        
+                        if (possibleRooms.length > 0) {
+                            possibleRooms.sort((a,b) => {
+                                let cxA = a.x + (a.width || 0) / 2;
+                                let cxB = b.x + (b.width || 0) / 2;
+                                return Math.abs(cxA - colCenter) - Math.abs(cxB - colCenter);
+                            });
+                            
+                            let closestRoom = possibleRooms[0];
+                            let cx = closestRoom.x + (closestRoom.width || 0) / 2;
+                            if (Math.abs(cx - colCenter) < colWidth * 0.7) {
+                                parsed.room = closestRoom.text.trim();
+                            }
+                        }
+                    }
+
+                    parsed._debug = cellItems.map(i => `${i.text}(y:${Math.round(i.y)})`).join(' | ');
+                    schedule[dayIdx][p] = parsed;
+                }
             }
         }
     }
-    for (let d = 0; d < 6; d++) for (let p = 0; p < 4; p++) if (!schedule[d][p]) schedule[d][p] = { type: 'empty' };
+
+    // Заповнюємо пусті місця для днів, які не знайшли
+    for (let d = 0; d < 6; d++) {
+        for (let p = 0; p < 4; p++) {
+            if (!schedule[d][p]) schedule[d][p] = { type: 'empty' };
+        }
+    }
+
     return schedule;
 }
 
 function parseCellItems(cellItems) {
     if (!cellItems || cellItems.length === 0) return { type: 'empty' };
+    
     cellItems.sort((a,b) => b.y - a.y);
     let texts = cellItems.map(it => it.text.trim()).filter(t => t.length > 0);
-    let isSelfStudy = texts.some(t => t.toLowerCase().includes('ср'));
-    texts = texts.map(t => t.replace(/ср\.?/gi, '').trim()).filter(t => t.length > 0);
     
-    let room = texts.find(t => /^(\d+[а-яa-z]*|-)$/i.test(t)) || "";
-    let teacher = texts.find(t => /[А-ЯІЄЇҐ]\.[А-ЯІЄЇҐ]\./.test(t)) || "";
-    let classTypeMatch = texts.find(t => /лз|пз|лек|прак/i.test(t));
-    let classType = classTypeMatch ? (classTypeMatch.toLowerCase().includes('лз') ? 'Лекція' : 'Практичне') : 'Лекція';
-    let subject = texts.filter(t => t !== room && t !== teacher && !t.toLowerCase().includes('лз') && !t.toLowerCase().includes('пз')).join(' ');
+    if (texts.length === 0) return { type: 'empty' };
 
+    let isSelfStudy = false;
+    let srIdx = texts.findIndex(t => t.toLowerCase() === 'ср' || t.toLowerCase() === 'с.р.');
+    if (srIdx !== -1) {
+        isSelfStudy = true;
+        texts.splice(srIdx, 1);
+    } else if (texts.length > 0 && texts[0].toLowerCase().startsWith('ср ')) {
+        isSelfStudy = true;
+        texts[0] = texts[0].substring(3).trim();
+    } else if (texts.length > 0 && texts[0].toLowerCase().startsWith('ср')) {
+        isSelfStudy = true;
+        texts[0] = texts[0].substring(2).trim();
+    }
+    
+    texts = texts.filter(t => t.length > 0);
+
+    let subject = "", teacher = "", room = "", classType = "";
+    
+    // 1. Шукаємо аудиторію (беремо ТІЛЬКИ першу, для 1-ї підгрупи)
+    let rooms = [];
+    for (let i = texts.length - 1; i >= 0; i--) {
+        let t = texts[i];
+        if ((t.includes('-') && /\d/.test(t)) || /^\d+[а-яa-z]*$/i.test(t)) {
+            rooms.unshift(t);
+            texts.splice(i, 1);
+        }
+    }
+    room = rooms.length > 0 ? rooms[0] : "";
+
+    // 2. Шукаємо тип заняття
+    if (!isSelfStudy) {
+        let typeIdx = texts.findIndex(t => /\d+\s*\/\s*\d+\s*[а-яієіїґa-z]+/i.test(t));
+        if (typeIdx !== -1) {
+            let tMatch = texts[typeIdx].match(/(\d+\s*\/\s*\d+)\s*([а-яієіїґa-z]+)/i);
+            if (tMatch) {
+                let tStr = tMatch[2].toLowerCase();
+                if (tStr.startsWith('лз')) classType = 'Лабораторне заняття';
+                else if (tStr.startsWith('пз') || tStr.startsWith('п')) classType = 'Практичне заняття';
+                else if (tStr.startsWith('л')) classType = 'Лекція';
+                else classType = tMatch[0];
+                
+                // Зберігаємо дріб (напр. "2/6") як частину предмету
+                texts[typeIdx] = tMatch[1];
+            } else {
+                texts.splice(typeIdx, 1);
+            }
+        }
+    }
+
+    // 3. Шукаємо викладачів (Слова з великої літери або ініціали)
+    let teachers = [];
+    for (let i = 0; i < texts.length; i++) {
+        let t = texts[i];
+        let hasDigit = /\d/.test(t);
+        let isTitleCase = /^[А-ЯІЄЇҐ][а-яієїґ]+$/.test(t);
+        let hasInitials = /[А-ЯІЄЇҐ]\.[А-ЯІЄЇҐ]\./.test(t) || /^[А-ЯІЄЇҐ]\.$/.test(t);
+        
+        if (!hasDigit && (isTitleCase || hasInitials)) {
+            teachers.push(t);
+            texts.splice(i, 1);
+            i--;
+        }
+    }
+    
+    // Беремо тільки першого викладача (для 1-ї підгрупи)
+    if (teachers.length > 0) {
+        teacher = teachers[0];
+        // Якщо наступний токен це ініціали (або навпаки), об'єднуємо
+        if (teachers.length > 1 && (teachers[1].includes('.') || teacher.includes('.'))) {
+            teacher = teachers[0] + ' ' + teachers[1];
+        }
+    }
+
+    // 4. Предмет (відсікаємо предмети другої підгрупи, напр. 5БІР)
+    for (let i = 1; i < texts.length; i++) {
+        if (/^\d+[А-ЯІЄЇҐ]+$/.test(texts[i])) {
+            texts = texts.slice(0, i);
+            break;
+        }
+    }
+
+    subject = texts.join(' ');
+    subject = subject.replace(/^[.-]+|[.-]+$/g, '').trim();
+
+    if (subject.endsWith(' 3/3')) subject = subject.replace(' 3/3', '');
+
+    if (isSelfStudy && texts.length === 0 && !room) return { type: 'free' };
     if (isSelfStudy) return { type: 'free', subject, room, teacher, isSelfStudy: true };
-    if (!subject && !room) return { type: 'empty' };
+    if (!isSelfStudy && texts.length === 0 && !room && !teacher) return { type: 'empty' };
+
     return { type: 'class', subject, teacher, room, classType };
 }
 
