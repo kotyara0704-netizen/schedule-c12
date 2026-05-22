@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Розклад С-12</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- PDF.js for parsing PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="background-effects">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+    </div>
+
+    <main class="app-container">
+        <header class="app-header">
+            <div>
+                <h1>Група С-12</h1>
+                <p class="subtitle">Ваш персональний розклад</p>
+            </div>
+            
+            <div class="upload-container">
+                <input type="file" id="pdfUpload" accept="application/pdf" class="hidden-input">
+                <label for="pdfUpload" class="upload-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    Оновити PDF
+                </label>
+                
+                <button id="downloadJsonBtn" class="upload-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    Скачати JSON
+                </button>
+                
+                <input type="file" id="jsonUpload" accept=".json" class="hidden-input">
+                <label for="jsonUpload" class="upload-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    Завантажити JSON
+                </label>
+            </div>
+        </header>
+
+        <div id="loadingOverlay" class="loading-overlay hidden">
+            <div class="spinner"></div>
+            <p>Аналізую розклад (С-12)...</p>
+        </div>
+
+        <section class="schedule-section">
+            <div class="days-nav" id="daysNav">
+                <button class="day-btn" data-day="0">Пн</button>
+                <button class="day-btn" data-day="1">Вт</button>
+                <button class="day-btn" data-day="2">Ср</button>
+                <button class="day-btn" data-day="3">Чт</button>
+                <button class="day-btn" data-day="4">Пт</button>
+                <button class="day-btn" data-day="5">Сб</button>
+            </div>
+            
+            <h2 id="currentDayTitle" class="day-title">Понеділок</h2>
+            
+            <div id="scheduleCards" class="schedule-cards">
+                <!-- Картки пар будуть додаватись сюди через JS -->
+                <div class="empty-state">
+                    <p>Завантажте PDF-файл з розкладом, щоб побачити пари.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Edit Modal -->
+        <div id="editModal" class="modal-overlay hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Редагувати пару</h3>
+                    <button class="close-modal-btn" id="closeModalBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="editForm">
+                        <input type="hidden" id="editDayIdx">
+                        <input type="hidden" id="editPairIdx">
+                        
+                        <div class="form-group">
+                            <label for="editType">Тип пари</label>
+                            <select id="editType" class="form-control">
+                                <option value="class">Звичайна пара</option>
+                                <option value="free">Самостійна робота</option>
+                                <option value="empty">Немає пари</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="editClassType">Вид заняття</label>
+                            <input type="text" id="editClassType" class="form-control" placeholder="Лекція, Практичне заняття..." autocomplete="off">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="editSubject">Предмет</label>
+                            <input type="text" id="editSubject" class="form-control" placeholder="Назва предмету" autocomplete="off">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="editTeacher">Викладач</label>
+                            <input type="text" id="editTeacher" class="form-control" placeholder="Прізвище І.Б." autocomplete="off">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="editRoom">Аудиторія</label>
+                            <input type="text" id="editRoom" class="form-control" placeholder="Номер аудиторії" autocomplete="off">
+                        </div>
+                        
+                        <div class="modal-actions">
+                            <button type="button" class="btn btn-secondary" id="cancelEditBtn">Скасувати</button>
+                            <button type="submit" class="btn btn-primary">Зберегти</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
