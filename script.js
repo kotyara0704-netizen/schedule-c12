@@ -212,23 +212,8 @@ async function parsePDF(typedarray) {
         if (c12_y && c13_y) dy = Math.abs(c12_y - c13_y);
         else if (c11_y && c12_y) dy = Math.abs(c11_y - c12_y);
 
-        let topBoundary, bottomBoundary;
-        let yGoesUp = true;
-        if (c11_y && c12_y) yGoesUp = c11_y > c12_y;
-        else if (c12_y && c13_y) yGoesUp = c12_y > c13_y;
-
-        if (yGoesUp) {
-            // Y зростає вгору. Відступаємо всередину комірки, щоб не захопити сусідів.
-            topBoundary = c11_y ? c11_y - 5 : c12_y + dy - 5;
-            bottomBoundary = c12_y + 3; 
-        } else {
-            // Y зростає вниз
-            topBoundary = c11_y ? c11_y + 5 : c12_y - dy + 5;
-            bottomBoundary = c12_y - 3;
-        }
-
-        let maxY = Math.max(topBoundary, bottomBoundary);
-        let minY = Math.min(topBoundary, bottomBoundary);
+        let maxY = c12_y + (dy / 2) - 2;
+        let minY = c12_y - (dy / 2) + 2;
 
         let c12Items = items.filter(i => i.y >= minY && i.y <= maxY);
 
@@ -317,8 +302,8 @@ async function parsePDF(typedarray) {
                         let colCenter = centerItem.x;
                         let colWidth = Math.abs(cols[1].x - cols[0].x);
                         
-                        let cellMinY = Math.min(topBoundary, bottomBoundary) - 15;
-                        let cellMaxY = Math.max(topBoundary, bottomBoundary) + 15;
+                        let cellMinY = minY - 15;
+                        let cellMaxY = maxY + 15;
                         
                         let possibleRooms = items.filter(i => {
                             let t = i.text.trim();
@@ -366,6 +351,9 @@ function parseCellItems(cellItems) {
     
     if (texts.length === 0) return { type: 'empty' };
 
+    // Видаляємо назви груп (С-11, С-12, С-13), які могли випадково потрапити в комірку
+    texts = texts.filter(t => !/^[СсcC]-1[123]$/i.test(t));
+
     let isSelfStudy = false;
     let srIdx = texts.findIndex(t => t.toLowerCase() === 'ср' || t.toLowerCase() === 'с.р.');
     if (srIdx !== -1) {
@@ -383,38 +371,60 @@ function parseCellItems(cellItems) {
 
     let subject = "", teacher = "", room = "", classType = "";
     
-    // 1. Шукаємо аудиторію (беремо ТІЛЬКИ першу, для 1-ї підгрупи)
-    let rooms = [];
-    for (let i = texts.length - 1; i >= 0; i--) {
-        let t = texts[i];
-        if ((t.includes('-') && /\d/.test(t)) || /^\d+[а-яa-z]*$/i.test(t)) {
-            rooms.unshift(t);
-            texts.splice(i, 1);
+    // 1. Шукаємо аудиторії (збираємо всі з їхніми координатами, щоб зберегти форматування як у PDF)
+    let roomItems = [];
+    for (let i = cellItems.length - 1; i >= 0; i--) {
+        let t = cellItems[i].text.trim();
+        // Аудиторія: або містить дефіс і цифру (411-27к), або цифри з 1-2 буквами (407а, 27к), або слово бокс
+        if ((t.includes('-') && /\d/.test(t)) || /^\d+[а-яa-zієїґ]{0,2}$/i.test(t) || t.toLowerCase().includes('бокс')) {
+            roomItems.push(cellItems[i]);
+            
+            // Видаляємо з texts
+            let txtIdx = texts.indexOf(t);
+            if (txtIdx !== -1) texts.splice(txtIdx, 1);
         }
     }
-    room = rooms.length > 0 ? rooms[0] : "";
+    
+    if (roomItems.length > 0) {
+        // Сортуємо по Y (зверху вниз), без групування по X ("стовпцями не рахуй, ми все беремо рядками")
+        roomItems.sort((a,b) => b.y - a.y);
+        
+        let lines = roomItems.map(i => i.text);
+        
+        // Якщо ліній кілька, робимо їх по центру
+        if (lines.length > 1) {
+            room = `<span style="display:inline-block; text-align:center; vertical-align:top;">${lines.join('<br>')}</span>`;
+        } else {
+            room = lines[0];
+        }
+    } else {
+        room = "";
+    }
 
-    // 2. Шукаємо тип заняття
-    if (!isSelfStudy) {
-        let typeIdx = texts.findIndex(t => /\d+\s*\/\s*\d+\s*[а-яієіїґa-z]+/i.test(t));
-        if (typeIdx !== -1) {
-            let tMatch = texts[typeIdx].match(/(\d+\s*\/\s*\d+)\s*([а-яієіїґa-z]+)/i);
-            if (tMatch) {
-                let tStr = tMatch[2].toLowerCase();
-                if (tStr.startsWith('лз')) classType = 'Лабораторне заняття';
-                else if (tStr.startsWith('пз') || tStr.startsWith('п')) classType = 'Практичне заняття';
-                else if (tStr.startsWith('л')) classType = 'Лекція';
-                else classType = tMatch[0];
-                
-                // Зберігаємо дріб (напр. "2/6") як частину предмету
-                texts[typeIdx] = tMatch[1];
+    // 2. Шукаємо тип заняття (навіть якщо це СР)
+    let typeIdx = texts.findIndex(t => /\d+\s*\/\s*\d+\s*[а-яієіїґa-z\.]+/i.test(t));
+    if (typeIdx !== -1) {
+        let fullStr = texts[typeIdx];
+        let regex = /(\d+\s*\/\s*\d+)\s*([а-яієіїґa-z\.]+)/i;
+        let tMatch = fullStr.match(regex);
+        if (tMatch) {
+            let tStr = tMatch[2].toLowerCase();
+            if (tStr.startsWith('лз')) classType = 'Лабораторне заняття';
+            else if (tStr.startsWith('пз') || tStr.startsWith('п')) classType = 'Практичне заняття';
+            else if (tStr.startsWith('л')) classType = 'Лекція';
+            else classType = tMatch[0];
+            
+            // Видаляємо ЦЮ частину з рядка, щоб залишився чистий предмет (напр. "5ППТС")
+            let newStr = fullStr.replace(regex, '').trim();
+            if (newStr) {
+                texts[typeIdx] = newStr;
             } else {
                 texts.splice(typeIdx, 1);
             }
         }
     }
 
-    // 3. Шукаємо викладачів (Слова з великої літери або ініціали)
+    // 3. Шукаємо викладачів
     let teachers = [];
     for (let i = 0; i < texts.length; i++) {
         let t = texts[i];
@@ -429,33 +439,59 @@ function parseCellItems(cellItems) {
         }
     }
     
-    // Беремо тільки першого викладача (для 1-ї підгрупи)
-    if (teachers.length > 0) {
-        teacher = teachers[0];
-        // Якщо наступний токен це ініціали (або навпаки), об'єднуємо
-        if (teachers.length > 1 && (teachers[1].includes('.') || teacher.includes('.'))) {
-            teacher = teachers[0] + ' ' + teachers[1];
+    let formattedTeachers = [];
+    for (let i = 0; i < teachers.length; i++) {
+        let t = teachers[i];
+        if (i < teachers.length - 1 && (teachers[i+1].includes('.') || t.includes('.'))) {
+            formattedTeachers.push(t + ' ' + teachers[i+1]);
+            i++;
+        } else {
+            formattedTeachers.push(t);
         }
     }
+    formattedTeachers = [...new Set(formattedTeachers)]; // Прибираємо дублікати
+    teacher = formattedTeachers.join(', ');
 
-    // 4. Предмет (відсікаємо предмети другої підгрупи, напр. 5БІР)
-    for (let i = 1; i < texts.length; i++) {
-        if (/^\d+[А-ЯІЄЇҐ]+$/.test(texts[i])) {
-            texts = texts.slice(0, i);
-            break;
-        }
-    }
-
-    subject = texts.join(' ');
+    // 4. Предмет
+    let uniqueTexts = [];
+    texts.forEach(t => { if (!uniqueTexts.includes(t)) uniqueTexts.push(t); });
+    
+    // Якщо предметів кілька (напр., різні підгрупи), виводимо їх кожен з нового рядка
+    subject = uniqueTexts.join('<br>');
     subject = subject.replace(/^[.-]+|[.-]+$/g, '').trim();
 
     if (subject.endsWith(' 3/3')) subject = subject.replace(' 3/3', '');
 
-    if (isSelfStudy && texts.length === 0 && !room) return { type: 'free' };
-    if (isSelfStudy) return { type: 'free', subject, room, teacher, isSelfStudy: true };
-    if (!isSelfStudy && texts.length === 0 && !room && !teacher) return { type: 'empty' };
+    // 5. Автоматичне визначення викладача за абревіатурою (якщо його немає в PDF)
+    const SUBJECT_DICT = {
+        "ППТС": "Бердников О.М.",
+        "ІТ НСК": "Яковів І.Б.",
+        "МІБ": "Гангал А.В.",
+        "ЕСРЗ": "Головін Ю.О., Шолохов С.М.",
+        "ООД": "Шолохов С.М.",
+        "АБ ЕКМ": "Рибак А.В., Сбоєв Р.Ю.",
+        "СІР": "Войтович",
+        "ФВм": "Величко В.А.",
+        "ЕП": "відповідно до наказу"
+    };
 
-    return { type: 'class', subject, teacher, room, classType };
+    if (!teacher || teacher.trim() === "") {
+        let matchedTeachers = [];
+        for (let key in SUBJECT_DICT) {
+            // Шукаємо абревіатуру в тексті предмета
+            if (subject.includes(key)) {
+                matchedTeachers.push(SUBJECT_DICT[key]);
+            }
+        }
+        if (matchedTeachers.length > 0) {
+            teacher = matchedTeachers.join(' / ');
+        }
+    }
+
+    if (isSelfStudy && uniqueTexts.length === 0 && !room && !teacher) return { type: 'free' };
+    if (uniqueTexts.length === 0 && !room && !teacher) return { type: 'empty' };
+
+    return { type: 'class', subject, teacher, room, classType, isSelfStudy };
 }
 
 function renderSchedule() {
@@ -510,7 +546,12 @@ function renderSchedule() {
                 </div>
             `;
         } else {
-            let typeClass = pair.classType === 'Лекція' ? 'lecture' : (pair.classType === 'Практичне' ? 'practice' : 'lab');
+            let typeClass = pair.classType === 'Лекція' ? 'lecture' : (pair.classType === 'Практичне заняття' ? 'practice' : 'lab');
+            let displayType = pair.classType || '';
+            if (pair.isSelfStudy) {
+                displayType = displayType ? displayType + ' + СР' : 'Самостійна робота';
+                if (!pair.classType) typeClass = 'self-study';
+            }
             card.innerHTML = `
                 ${editBtnHTML}
                 <div class="class-time">
@@ -519,9 +560,9 @@ function renderSchedule() {
                 </div>
                 <div class="class-details" title="${pair._debug || ''}">
                     <div class="class-type-badge-container" style="text-align: center;">
-                        <div class="class-type-badge ${typeClass}">${pair.classType || ''}</div>
+                        <div class="class-type-badge ${typeClass}">${displayType}</div>
                     </div>
-                    <h3 class="subject" style="text-align: center; margin-bottom: 1rem;">${pair.subject}</h3>
+                    ${pair.subject ? `<h3 class="subject" style="text-align: center; margin-bottom: 1rem;">${pair.subject}</h3>` : ''}
                     
                     <div class="class-meta">
                         ${pair.teacher ? `<div class="meta-item">
