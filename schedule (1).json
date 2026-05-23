@@ -1,0 +1,171 @@
+{
+  "0": [
+    {
+      "type": "free",
+      "isSelfStudy": true,
+      "subject": "",
+      "room": "501-20к",
+      "teacher": ""
+    },
+    {
+      "type": "class",
+      "subject": "",
+      "teacher": "Яковів",
+      "room": "501-20к",
+      "classType": "Практичне заняття"
+    },
+    {
+      "type": "class",
+      "subject": "5МСУІБ",
+      "teacher": "",
+      "room": "501-20к",
+      "classType": "Лекція",
+      "isSelfStudy": false,
+      "_debug": "501-20к(y:37) | 5МСУІБ(y:32) | 8/1л(y:32)"
+    },
+    {
+      "type": "empty",
+      "_debug": ""
+    }
+  ],
+  "1": [
+    {
+      "type": "empty",
+      "room": "27к-503",
+      "_debug": ""
+    },
+    {
+      "type": "empty",
+      "room": "27к-503",
+      "_debug": ""
+    },
+    {
+      "type": "empty",
+      "room": "27к-503",
+      "_debug": ""
+    },
+    {
+      "type": "empty",
+      "_debug": ""
+    }
+  ],
+  "2": [
+    {
+      "type": "class",
+      "subject": "5ІТ НСК",
+      "teacher": "Яковів І.Б.",
+      "room": "101-27к",
+      "classType": "Лекція",
+      "isSelfStudy": false,
+      "_debug": "101-27к(y:37) | 5ІТ НСК(y:32) | 5/1л(y:32)"
+    },
+    {
+      "type": "class",
+      "subject": "",
+      "teacher": "",
+      "room": "<span style=\"display:inline-block; text-align:center; vertical-align:top;\">501-20к<br>5ОА</span>",
+      "classType": "Практичне заняття",
+      "isSelfStudy": false,
+      "_debug": "501-20к(y:37) | 5ОА(y:32) | 6/5пз(y:32)"
+    },
+    {
+      "type": "class",
+      "subject": "",
+      "teacher": "",
+      "room": "501-20к",
+      "classType": "",
+      "isSelfStudy": false,
+      "_debug": "501-20к(y:37)"
+    },
+    {
+      "type": "empty",
+      "_debug": ""
+    }
+  ],
+  "3": [
+    {
+      "type": "empty",
+      "room": "27к-503",
+      "_debug": ""
+    },
+    {
+      "type": "empty",
+      "room": "27к-503",
+      "_debug": ""
+    },
+    {
+      "type": "empty",
+      "room": "27к-503",
+      "_debug": ""
+    },
+    {
+      "type": "empty",
+      "_debug": ""
+    }
+  ],
+  "4": [
+    {
+      "type": "class",
+      "subject": "5БІР<br>5ФУР",
+      "teacher": "",
+      "room": "501-20к",
+      "classType": "",
+      "isSelfStudy": false,
+      "_debug": "501-20к(y:37) | 5БІР(y:32) | 5ФУР(y:32)"
+    },
+    {
+      "type": "class",
+      "subject": "5РОС",
+      "teacher": "",
+      "room": "501-20к",
+      "classType": "Лекція",
+      "isSelfStudy": false,
+      "_debug": "501-20к(y:37) | 5РОС(y:32) | 2/6л(y:32)"
+    },
+    {
+      "type": "class",
+      "subject": "5СІТ",
+      "teacher": "",
+      "room": "501-20к",
+      "classType": "Лекція",
+      "isSelfStudy": false,
+      "_debug": "501-20к(y:37) | 5СІТ(y:32) | 2/8л(y:32)"
+    },
+    {
+      "type": "empty",
+      "_debug": ""
+    }
+  ],
+  "5": [
+    {
+      "type": "class",
+      "subject": "",
+      "teacher": "",
+      "room": "503-20к",
+      "classType": "",
+      "isSelfStudy": false,
+      "_debug": "503-20к(y:37)"
+    },
+    {
+      "type": "class",
+      "subject": "",
+      "teacher": "",
+      "room": "503-20к",
+      "classType": "",
+      "isSelfStudy": false,
+      "_debug": "503-20к(y:37)"
+    },
+    {
+      "type": "class",
+      "subject": "",
+      "teacher": "",
+      "room": "503-20к",
+      "classType": "",
+      "isSelfStudy": false,
+      "_debug": "503-20к(y:37)"
+    },
+    {
+      "type": "empty"
+    }
+  ]
+}
